@@ -1,0 +1,12 @@
+# CSX ExecutionPolicy — CI-like steps (same spirit as CIDE ADR 0040 LSP launch lines).
+# Bind from script: ExecEnvironment.Configuration.Set("cdp-execution.toml");
+# Or Set("""…inline toml…""");
+# Placeholders: {{work_root}} {{primary_root}} {{plan_id}}
+
+[steps.ping]
+executable = "git"
+arguments = ["--version"]
+
+[steps.dotnet_version]
+executable = "dotnet"
+arguments = ["--version"]
