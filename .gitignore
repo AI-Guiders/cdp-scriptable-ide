@@ -3,3 +3,4 @@ obj/
 nupkg/
 *.user
 .vs/
+.hybrid-codebase-index/
