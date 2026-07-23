@@ -8,7 +8,19 @@
     <AssemblyName>Cdp.ScriptableIde</AssemblyName>
     <PackageId>AIGuiders.Cdp.ScriptableIde</PackageId>
     <Version>0.1.48</Version>
-    <Description>CSX allowlist host for CDP: Debug/Roslyn/Git/Verify/Symbol/SemanticMap/Work/Refactor/Annotate/Insert/Fix/Generate/Body/Settings/Packages/Projects/Solutions facades over IScriptToolBus.</Description>
+    <Authors>Dmitry Karataev; AIGuiders</Authors>
+    <Company>AIGuiders</Company>
+    <Description>CSX allowlist host for CDP: Debug/Roslyn/Git/Verify/Symbol/SemanticMap/Work/Refactor/Annotate/Insert/Fix/Generate/Body/Settings/Packages/Projects/Solutions facades over IScriptToolBus. CodeAnchor + BracketLocate.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/AI-Guiders/cdp-scriptable-ide</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/AI-Guiders/cdp-scriptable-ide.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>cdp;mcp;code-anchor;bracket-locate;csx;cascade-ide;modelcontextprotocol</PackageTags>
+    <PackageReadmeFile>PACKAGE_README.md</PackageReadmeFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.3.0" />
@@ -17,5 +29,7 @@
   <ItemGroup>
     <Compile Remove="tools/**" />
     <None Include="tools/**" />
+    <None Include="PACKAGE_README.md" Pack="true" PackagePath="\" />
+    <None Include="LICENSE" Pack="true" PackagePath="\" />
   </ItemGroup>
 </Project>

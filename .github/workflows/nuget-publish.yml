@@ -1,0 +1,69 @@
+# Публикация на nuget.org через Trusted Publishing (OIDC).
+# nuget.org (LonelySoul): Trusted Publishing → owner AI-Guiders, repo cdp-scriptable-ide, workflow nuget-publish.yml
+name: Publish to NuGet
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_version:
+        description: 'Версия пакета (SemVer, напр. 0.1.48)'
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Версия пакета
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            v="${GITHUB_REF_NAME#v}"
+            echo "PKG_VERSION=$v" >> "$GITHUB_ENV"
+            echo "Publishing version (from tag): $v"
+          else
+            iv="${{ github.event.inputs.package_version }}"
+            echo "PKG_VERSION=$iv" >> "$GITHUB_ENV"
+            echo "Publishing version (workflow_dispatch): $iv"
+          fi
+
+      - name: Pack (Release)
+        run: dotnet pack Cdp.ScriptableIde.csproj -c Release -o nupkg -p:PackageVersion="${PKG_VERSION}"
+
+      - name: NuGet login (OIDC → временный API key)
+        uses: NuGet/login@v1
+        id: nuget_login
+        with:
+          user: LonelySoul
+
+      - name: Push nupkg / snupkg
+        shell: bash
+        run: |
+          set -euo pipefail
+          key="${{ steps.nuget_login.outputs.NUGET_API_KEY }}"
+          src="https://api.nuget.org/v3/index.json"
+          shopt -s nullglob
+          for f in nupkg/*.nupkg; do
+            dotnet nuget push "$f" --api-key "$key" --source "$src" --skip-duplicate
+          done
+          declare -A seen=()
+          for f in nupkg/*.snupkg; do
+            base=$(basename "$f")
+            if [[ -n "${seen[$base]:-}" ]]; then continue; fi
+            seen[$base]=1
+            dotnet nuget push "$f" --api-key "$key" --source "$src" --skip-duplicate
+          done
