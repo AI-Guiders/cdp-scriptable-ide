@@ -1,4 +1,5 @@
 using System.Text;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Scripting;
 using Microsoft.CodeAnalysis.Scripting;
 
@@ -25,15 +26,15 @@ public static class ScriptHost
         {
             var script = CSharpScript.Create(code, DefaultOptions, typeof(ScriptGlobals));
             var diags = script.Compile();
-            var errors = diags.Where(d => d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
-                .Select(d => d.ToString())
-                .ToArray();
+            var items = CsxDiagnosticProjection.FromDiagnostics(diags);
+            var legacy = CsxDiagnosticProjection.ToLegacyStrings(items);
             return new ScriptReport
             {
-                Ok = errors.Length == 0,
+                Ok = items.Count == 0,
                 Mode = "check",
-                Diagnostics = errors,
-                Error = errors.Length == 0 ? null : string.Join("\n", errors)
+                Diagnostics = legacy,
+                DiagnosticItems = items,
+                Error = items.Count == 0 ? null : string.Join("\n", legacy)
             };
         }
         catch (Exception ex)
@@ -113,13 +114,15 @@ public static class ScriptHost
         }
         catch (CompilationErrorException cex)
         {
-            var diags = cex.Diagnostics.Select(d => d.ToString()).ToArray();
+            var items = CsxDiagnosticProjection.FromDiagnostics(cex.Diagnostics);
+            var legacy = CsxDiagnosticProjection.ToLegacyStrings(items);
             return new ScriptReport
             {
                 Ok = false,
                 Mode = mode,
-                Error = string.Join("\n", diags),
-                Diagnostics = diags,
+                Error = string.Join("\n", legacy),
+                Diagnostics = legacy,
+                DiagnosticItems = items,
                 Steps = bus.Steps.ToArray(),
                 PlanId = plan.PlanId,
                 PrimaryRoot = plan.PrimaryRoot,

@@ -4,10 +4,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>14</LangVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
     <RootNamespace>Cdp.ScriptableIde</RootNamespace>
     <AssemblyName>Cdp.ScriptableIde</AssemblyName>
     <PackageId>AIGuiders.Cdp.ScriptableIde</PackageId>
-    <Version>0.1.48</Version>
+    <Version>0.1.50</Version>
     <Authors>Dmitry Karataev; AIGuiders</Authors>
     <Company>AIGuiders</Company>
     <Description>CSX allowlist host for CDP: Debug/Roslyn/Git/Verify/Symbol/SemanticMap/Work/Refactor/Annotate/Insert/Fix/Generate/Body/Settings/Packages/Projects/Solutions facades over IScriptToolBus. CodeAnchor + BracketLocate.</Description>

@@ -2,9 +2,13 @@ using System.Text.Json;
 
 namespace Cdp.ScriptableIde;
 
+/// <summary>
+/// Explore by name — not SearchAsync. Canonical: <c>Symbol.Named("T").In("F.cs")</c>
+/// then FindUsages / pass to <see cref="SemanticMapFacade.Explore"/>.
+/// </summary>
 public sealed class SymbolFacade(IScriptToolBus bus, PlanContext plan)
 {
-    /// <summary>Resolve by name — no manual line/column.</summary>
+    /// <summary>Resolve by name — no manual line/column. Chain <c>.In(file)</c> then Resolve/FindUsages.</summary>
     public NamedCodeAnchor Named(string symbolName) => new(bus, plan, symbolName);
 
     public Task<string> EnqueueFindUsagesAsync(
@@ -81,9 +85,14 @@ public sealed class NamedCodeAnchor(IScriptToolBus bus, PlanContext plan, string
         new SymbolFacade(bus, plan).FindUsagesAsync(Resolve(), ct);
 }
 
+/// <summary>
+/// Related/scene map around an anchor. Canonical:
+/// <c>await SemanticMap.Explore(Symbol.Named("X").In("X.cs")).Mode("related").GetSceneAsync()</c>
+/// — not a free-form Search.
+/// </summary>
 public sealed class SemanticMapFacade(IScriptToolBus bus, PlanContext plan)
 {
-    /// <summary>Explore surface: wide strokes around an anchor (preset / caps / kinds).</summary>
+    /// <summary>Explore surface: wide strokes around an anchor (preset / caps / kinds). Prefer GetSceneAsync.</summary>
     public SemanticMapExplore Explore(CodeAnchor anchor) => new(bus, plan, anchor);
 
     public SemanticMapExplore Explore(NamedCodeAnchor named) => Explore(named.Resolve());

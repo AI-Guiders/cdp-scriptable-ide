@@ -39,6 +39,7 @@ public sealed class ScriptGlobals
         Solutions = new SolutionsFacade(bus, plan);
         Scratch = new ScratchFacade(bus, plan);
         Open = new OpenFacade(bus, plan);
+        Help = new HelpFacade();
     }
 
     internal ScriptToolBus Bus { get; }
@@ -54,7 +55,9 @@ public sealed class ScriptGlobals
     public AnuiFacade Anui { get; }
     public ExecEnvironment ExecEnvironment { get; }
     public ExecutionFacade Execution { get; }
+    /// <summary>Explore by name: <c>Symbol.Named("T").In("F.cs")</c> — not SearchAsync.</summary>
     public SymbolFacade Symbol { get; }
+    /// <summary>Related/scene map: <c>SemanticMap.Explore(anchor).Mode("related").GetSceneAsync()</c>.</summary>
     public SemanticMapFacade SemanticMap { get; }
     public CorrespondenceFacade Correspondence { get; }
     public WorkFacade Work { get; }
@@ -86,6 +89,8 @@ public sealed class ScriptGlobals
     public ScratchFacade Scratch { get; }
     /// <summary>Open Recent + Anchor→solution: <c>Open.At(anchor)</c>, <c>Open.Recent.ListAsync()</c>, <c>Open.Recent.AtAsync(0)</c>.</summary>
     public OpenFacade Open { get; }
+    /// <summary>Live CSX API help from XML docs: <c>Help.Toc()</c>, <c>Help.Of("Symbol")</c>.</summary>
+    public HelpFacade Help { get; }
 }
 
 public sealed class MutateFacade(IScriptToolBus bus, ScriptGlobals root)

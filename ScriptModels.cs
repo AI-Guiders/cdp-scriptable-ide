@@ -58,4 +58,6 @@ public sealed record ScriptReport
     public string? ConsoleOut { get; init; }
     /// <summary>TEMP scratch dirs deleted after run (hygiene).</summary>
     public IReadOnlyList<string>? ScratchesRemoved { get; init; }
+    /// <summary>Structured CSX diagnostics with anchors (prefer over raw Diagnostics strings alone).</summary>
+    public IReadOnlyList<CsxDiagnosticProjection.Item>? DiagnosticItems { get; init; }
 }
