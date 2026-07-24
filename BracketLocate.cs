@@ -5,9 +5,21 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Cdp.ScriptableIde;
 
-/// <summary>0128 L2 bracket locate for mutate (F/M/L/S + optional K role).</summary>
+/// <summary>0128 L2 bracket locate for mutate (F/M/L/S/K csharp + X/A xml).</summary>
 public static partial class BracketLocate
 {
+    public enum AxisFamily
+    {
+        None,
+        Csharp,
+        Xml
+    }
+
+    static readonly HashSet<string> KnownAxes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "F", "M", "L", "S", "K", "X", "A"
+    };
+
     [GeneratedRegex(@"\bF:(?<file>[^;\]]+)", RegexOptions.CultureInvariant)]
     private static partial Regex FileToken();
 
@@ -21,9 +33,20 @@ public static partial class BracketLocate
     [GeneratedRegex(@"\bS:(?<kind>[A-Za-z]+)(?::(?<index>\d+))?", RegexOptions.CultureInvariant)]
     private static partial Regex ScopeToken();
 
-    /// <summary>K:Condition | Branch.* | Expression/Collection | Initializer | Parameter:name | Name | ReturnType | Body | Type.</summary>
+    /// <summary>K: csharp roles | xml Element|Attr.</summary>
     [GeneratedRegex(@"\bK:(?<role>[^;\]]+)", RegexOptions.CultureInvariant)]
     private static partial Regex RoleToken();
+
+    /// <summary>X:Project/PropertyGroup/OutputType or ItemGroup/PackageReference@Include=Foo.</summary>
+    [GeneratedRegex(@"\bX:(?<path>[^;\]]+)", RegexOptions.CultureInvariant)]
+    private static partial Regex XmlPathToken();
+
+    /// <summary>A:Version — attribute value on the X: element.</summary>
+    [GeneratedRegex(@"\bA:(?<attr>[^;\]]+)", RegexOptions.CultureInvariant)]
+    private static partial Regex AttrToken();
+
+    [GeneratedRegex(@"\b([A-Za-z]+):", RegexOptions.CultureInvariant)]
+    private static partial Regex AnyAxisToken();
 
     public sealed record Span(
         string? File,
@@ -32,13 +55,22 @@ public static partial class BracketLocate
         int? LineEnd,
         string? ScopeKind = null,
         int? ScopeIndex = null,
-        string? Role = null);
+        string? Role = null,
+        string? XmlPath = null,
+        string? Attr = null);
 
     public static Span Parse(string bracketOrInner)
     {
         var text = (bracketOrInner ?? "").Trim();
         if (text.StartsWith('[') && text.EndsWith(']'))
             text = text[1..^1].Trim();
+
+        foreach (Match am in AnyAxisToken().Matches(text))
+        {
+            var key = am.Groups[1].Value;
+            if (!KnownAxes.Contains(key))
+                throw new ArgumentException($"unknown_axis:{key}");
+        }
 
         string? file = null;
         string? member = null;
@@ -47,6 +79,8 @@ public static partial class BracketLocate
         string? scopeKind = null;
         int? scopeIndex = null;
         string? role = null;
+        string? xmlPath = null;
+        string? attr = null;
 
         var fm = FileToken().Match(text);
         if (fm.Success)
@@ -78,7 +112,54 @@ public static partial class BracketLocate
         if (km.Success)
             role = km.Groups["role"].Value.Trim();
 
-        return new Span(file, member, lineStart, lineEnd, scopeKind, scopeIndex, role);
+        var xm = XmlPathToken().Match(text);
+        if (xm.Success)
+            xmlPath = xm.Groups["path"].Value.Trim();
+
+        var am2 = AttrToken().Match(text);
+        if (am2.Success)
+            attr = am2.Groups["attr"].Value.Trim();
+
+        var span = new Span(file, member, lineStart, lineEnd, scopeKind, scopeIndex, role, xmlPath, attr);
+        _ = ClassifyFamily(span, out var familyError);
+        if (familyError is not null)
+            throw new ArgumentException(familyError);
+        return span;
+    }
+
+    /// <summary>
+    /// Discriminate csharp (M/S/L) vs xml (X/A). Shared: F, K. Mixed → error.
+    /// </summary>
+    public static AxisFamily ClassifyFamily(Span span, out string? error)
+    {
+        error = null;
+        var hasCsharpStructural = !string.IsNullOrWhiteSpace(span.MemberKey)
+            || !string.IsNullOrWhiteSpace(span.ScopeKind)
+            || span.LineStart is not null;
+        var hasXml = !string.IsNullOrWhiteSpace(span.XmlPath)
+            || !string.IsNullOrWhiteSpace(span.Attr);
+
+        if (hasCsharpStructural && hasXml)
+        {
+            error = "mixed_axes";
+            return AxisFamily.None;
+        }
+
+        if (hasXml)
+        {
+            if (string.IsNullOrWhiteSpace(span.XmlPath) && !string.IsNullOrWhiteSpace(span.Attr))
+            {
+                error = "need_X_for_A";
+                return AxisFamily.None;
+            }
+
+            return AxisFamily.Xml;
+        }
+
+        if (hasCsharpStructural || !string.IsNullOrWhiteSpace(span.Role))
+            return AxisFamily.Csharp;
+
+        return AxisFamily.None;
     }
 
     /// <summary>Emit 0128 wire from a structured span (agent surface prefers <see cref="Anchor"/>).</summary>
@@ -103,6 +184,10 @@ public static partial class BracketLocate
             parts.Add(idx == 1 ? $"S:{kind}" : $"S:{kind}:{idx}");
         }
 
+        if (!string.IsNullOrWhiteSpace(span.XmlPath))
+            parts.Add("X:" + span.XmlPath.Trim());
+        if (!string.IsNullOrWhiteSpace(span.Attr))
+            parts.Add("A:" + span.Attr.Trim());
         if (!string.IsNullOrWhiteSpace(span.Role))
             parts.Add("K:" + span.Role.Trim());
 

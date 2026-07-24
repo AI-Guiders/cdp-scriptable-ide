@@ -13,6 +13,8 @@ public sealed class Anchor
     private string? _scopeKind;
     private int? _scopeIndex;
     private string? _role;
+    private string? _xmlPath;
+    private string? _attr;
 
     public static Anchor File(string path)
     {
@@ -35,8 +37,29 @@ public sealed class Anchor
         _lineEnd = span.LineEnd,
         _scopeKind = span.ScopeKind,
         _scopeIndex = span.ScopeIndex,
-        _role = span.Role
+        _role = span.Role,
+        _xmlPath = span.XmlPath,
+        _attr = span.Attr
     };
+
+    /// <summary>XML element path — <c>X:Project/PropertyGroup/OutputType</c>.</summary>
+    public Anchor Element(string xmlPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(xmlPath);
+        _xmlPath = xmlPath.Trim();
+        return this;
+    }
+
+    /// <summary>XML attribute on the X: element — <c>A:Version</c>.</summary>
+    public Anchor Attr(string attributeName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(attributeName);
+        _attr = attributeName.Trim();
+        return this;
+    }
+
+    /// <summary>Upsert missing XML element under parent — <c>K:Element</c>.</summary>
+    public Anchor CreateElement() => Role("Element");
 
     public Anchor Method(string name)
     {
@@ -116,7 +139,7 @@ public sealed class Anchor
     public Anchor Type() => Role("Type");
 
     public BracketLocate.Span ToSpan() =>
-        new(_file, _member, _lineStart, _lineEnd, _scopeKind, _scopeIndex, _role);
+        new(_file, _member, _lineStart, _lineEnd, _scopeKind, _scopeIndex, _role, _xmlPath, _attr);
 
     /// <summary>Bracket-notation wire for harness parse.</summary>
     public string ToWire() => BracketLocate.Format(ToSpan());
