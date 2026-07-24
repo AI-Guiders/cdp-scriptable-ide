@@ -60,4 +60,6 @@ public sealed record ScriptReport
     public IReadOnlyList<string>? ScratchesRemoved { get; init; }
     /// <summary>Structured CSX diagnostics with anchors (prefer over raw Diagnostics strings alone).</summary>
     public IReadOnlyList<CsxDiagnosticProjection.Item>? DiagnosticItems { get; init; }
+    /// <summary>Shared <c>evidence/v0</c> locus projection (same schema as build/test).</summary>
+    public Cdp.Evidence.EvidenceDocumentDto? Evidence { get; init; }
 }

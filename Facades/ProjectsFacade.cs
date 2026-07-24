@@ -1,8 +1,17 @@
 namespace Cdp.ScriptableIde;
 
-/// <summary>CSX brand: <c>Projects.Create/List</c> — TFM via <see cref="TfmPolicy"/>.</summary>
+/// <summary>CSX brand: <c>Projects.Scene/Create/List</c> — TFM via <see cref="TfmPolicy"/>.</summary>
 public sealed class ProjectsFacade(ScriptToolBus bus, PlanContext plan)
 {
+    /// <summary>Project map before create — curated templates + session + existing (prefer over inventing files).</summary>
+    public Task<StepResponse> SceneAsync(
+        string? root = null,
+        bool includeInstalled = false,
+        int maxExisting = ProjectScene.MaxExistingDefault,
+        int maxInstalled = ProjectScene.MaxInstalledDefault,
+        CancellationToken ct = default) =>
+        ProjectOps.SceneAsync(bus, plan, root, includeInstalled, maxExisting, maxInstalled, ct);
+
     public Task<StepResponse> CreateAsync(
         string outputDir,
         string? name = null,

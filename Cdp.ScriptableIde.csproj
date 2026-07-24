@@ -9,7 +9,7 @@
     <RootNamespace>Cdp.ScriptableIde</RootNamespace>
     <AssemblyName>Cdp.ScriptableIde</AssemblyName>
     <PackageId>AIGuiders.Cdp.ScriptableIde</PackageId>
-    <Version>0.1.50</Version>
+    <Version>0.1.52</Version>
     <Authors>Dmitry Karataev; AIGuiders</Authors>
     <Company>AIGuiders</Company>
     <Description>CSX allowlist host for CDP: Debug/Roslyn/Git/Verify/Symbol/SemanticMap/Work/Refactor/Annotate/Insert/Fix/Generate/Body/Settings/Packages/Projects/Solutions facades over IScriptToolBus. CodeAnchor + BracketLocate.</Description>
@@ -27,6 +27,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" Version="5.3.0" />
     <PackageReference Include="Tomlyn" Version="2.9.0" />
+    <ProjectReference Include="..\cdp-evidence\Cdp.Evidence.csproj"
+                      Condition="Exists('..\cdp-evidence\Cdp.Evidence.csproj')" />
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="tools/**" />

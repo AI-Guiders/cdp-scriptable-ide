@@ -1,10 +1,12 @@
 using System.Text.Json;
+using Cdp.Evidence;
 using Microsoft.CodeAnalysis;
 
 namespace Cdp.ScriptableIde;
 
 /// <summary>
 /// Project Roslyn CSX diagnostics to agent-friendly anchors (not raw <c>(line,col)</c> dump alone).
+/// Also folds into shared <see cref="EvidencePreprocess"/> <c>evidence/v0</c>.
 /// </summary>
 public static class CsxDiagnosticProjection
 {
@@ -37,18 +39,22 @@ public static class CsxDiagnosticProjection
                 anchor = Anchor.File(ScriptFileToken).Line(line.Value).ToWire();
             }
 
+            var message = d.GetMessage();
             list.Add(new Item(
                 d.Id,
                 "error",
-                d.GetMessage(),
+                message,
                 line,
                 col,
                 anchor,
-                SuggestHint(d)));
+                EvidenceHints.ForCode(d.Id, message) ?? SuggestHintLegacy(d)));
         }
 
         return list;
     }
+
+    public static EvidenceDocument ToEvidence(IReadOnlyList<Item> items) =>
+        EvidencePreprocess.FromCsxItems(items.Select(i => (i.Id, i.Severity, i.Message, i.Line, i.Column, i.Anchor, i.Hint)));
 
     public static string[] ToLegacyStrings(IReadOnlyList<Item> items) =>
         items.Select(i =>
@@ -61,10 +67,11 @@ public static class CsxDiagnosticProjection
         {
             schema = SchemaVersion,
             count = items.Count,
-            items
+            items,
+            evidence = EvidencePreprocess.ToDto(ToEvidence(items))
         });
 
-    private static string? SuggestHint(Diagnostic d)
+    private static string? SuggestHintLegacy(Diagnostic d)
     {
         var msg = d.GetMessage();
         if (d.Id is "CS0103" && msg.Contains("Report", StringComparison.Ordinal))

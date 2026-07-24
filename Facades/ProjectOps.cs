@@ -59,6 +59,107 @@ public static class ProjectOps
         return result;
     }
 
+    /// <summary>Project map: curated templates + optional installed list + existing projects/solutions.</summary>
+    public static async Task<StepResponse> SceneAsync(
+        ScriptToolBus bus,
+        PlanContext plan,
+        string? root = null,
+        bool includeInstalled = false,
+        int maxExisting = ProjectScene.MaxExistingDefault,
+        int maxInstalled = ProjectScene.MaxInstalledDefault,
+        CancellationToken ct = default)
+    {
+        const string kind = "projects.scene";
+        maxExisting = Math.Clamp(maxExisting, 1, 200);
+        maxInstalled = Math.Clamp(maxInstalled, 1, 200);
+
+        var scan = string.IsNullOrWhiteSpace(root)
+            ? plan.WorkRoot
+            : Path.GetFullPath(Path.IsPathRooted(root!) ? root! : Path.Combine(plan.WorkRoot, root!));
+
+        object[]? installed = null;
+        string? installedNote = null;
+        if (includeInstalled)
+        {
+            var (code, stdout, stderr) = await ProcessUtil.RunAsync(
+                "dotnet", ["new", "list", "--type", "project"], scan, null, ct).ConfigureAwait(false);
+            if (code == 0)
+            {
+                var cards = ProjectScene.ParseDotnetNewList(stdout, maxInstalled);
+                installed = cards.Select(c => new
+                {
+                    id = c.Id,
+                    title = c.Title,
+                    language = c.Language,
+                    tags = c.Tags,
+                    create_via = c.CreateVia
+                }).ToArray<object>();
+                installedNote = $"parsed:{cards.Count}";
+            }
+            else
+            {
+                installedNote = $"dotnet new list exit {code}: {Trunc(stderr, 400)}";
+            }
+        }
+
+        var existingProjects = Array.Empty<object>();
+        var existingSolutions = Array.Empty<object>();
+        if (Directory.Exists(scan))
+        {
+            existingProjects = Directory.EnumerateFiles(scan, "*.csproj", SearchOption.AllDirectories)
+                .Take(maxExisting)
+                .Select(p => (object)new { path = p, kind = "csproj" })
+                .Concat(Directory.EnumerateFiles(scan, "tsconfig.json", SearchOption.AllDirectories)
+                    .Take(Math.Max(0, maxExisting / 4))
+                    .Select(p => (object)new { path = p, kind = "tsconfig" }))
+                .Take(maxExisting)
+                .ToArray();
+            existingSolutions = Directory.EnumerateFiles(scan, "*.sln", SearchOption.TopDirectoryOnly)
+                .Concat(Directory.EnumerateFiles(scan, "*.slnx", SearchOption.TopDirectoryOnly))
+                .Take(20)
+                .Select(p => (object)new { path = p })
+                .ToArray();
+        }
+
+        var curated = ProjectScene.Curated.Select(c => new
+        {
+            id = c.Id,
+            title = c.Title,
+            language = c.Language,
+            tags = c.Tags,
+            create_via = c.CreateVia,
+            template = c.Id == "typescript" ? (string?)null : c.Id
+        }).ToArray();
+
+        var payload = new
+        {
+            schema = ProjectScene.SchemaVersion,
+            session = new
+            {
+                language = plan.Language,
+                work_root = plan.WorkRoot,
+                primary_root = plan.PrimaryRoot,
+                solution_or_project = plan.SolutionOrProjectPath
+            },
+            scan_root = scan,
+            templates_curated = curated,
+            templates_installed = installed,
+            templates_installed_note = installedNote,
+            policies = ProjectScene.PolicyEnums(),
+            existing = new { projects = existingProjects, solutions = existingSolutions },
+            next = new
+            {
+                create = "cdp_project_create / Projects.Create",
+                hint = "Pick templates_curated[].id as template= (csharp). typescript: set session language then create (npm_init). Prefer scene before inventing files."
+            }
+        };
+
+        var result = StepResponse.Success(kind,
+            $"curated:{curated.Length};existing:{existingProjects.Length}", payload);
+        bus.RecordLocal("projects", kind, ScriptArgs.From(new { root = scan, includeInstalled }), result.ToJson());
+        return result;
+    }
+
     public static Task<StepResponse> ListAsync(
         ScriptToolBus bus,
         PlanContext plan,

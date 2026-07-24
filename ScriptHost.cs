@@ -34,6 +34,7 @@ public static class ScriptHost
                 Mode = "check",
                 Diagnostics = legacy,
                 DiagnosticItems = items,
+                Evidence = Cdp.Evidence.EvidencePreprocess.ToDto(CsxDiagnosticProjection.ToEvidence(items)),
                 Error = items.Count == 0 ? null : string.Join("\n", legacy)
             };
         }
@@ -123,6 +124,7 @@ public static class ScriptHost
                 Error = string.Join("\n", legacy),
                 Diagnostics = legacy,
                 DiagnosticItems = items,
+                Evidence = Cdp.Evidence.EvidencePreprocess.ToDto(CsxDiagnosticProjection.ToEvidence(items)),
                 Steps = bus.Steps.ToArray(),
                 PlanId = plan.PlanId,
                 PrimaryRoot = plan.PrimaryRoot,
