@@ -77,12 +77,14 @@ public static class ProjectOps
             ? plan.WorkRoot
             : Path.GetFullPath(Path.IsPathRooted(root!) ? root! : Path.Combine(plan.WorkRoot, root!));
 
+        var habitat = ProjectScene.IsHostHabitatRoot(scan);
         object[]? installed = null;
         string? installedNote = null;
         if (includeInstalled)
         {
+            var procCwd = habitat ? Path.GetTempPath() : scan;
             var (code, stdout, stderr) = await ProcessUtil.RunAsync(
-                "dotnet", ["new", "list", "--type", "project"], scan, null, ct).ConfigureAwait(false);
+                "dotnet", ["new", "list", "--type", "project"], procCwd, null, ct).ConfigureAwait(false);
             if (code == 0)
             {
                 var cards = ProjectScene.ParseDotnetNewList(stdout, maxInstalled);
@@ -104,21 +106,37 @@ public static class ProjectOps
 
         var existingProjects = Array.Empty<object>();
         var existingSolutions = Array.Empty<object>();
-        if (Directory.Exists(scan))
+        string? scanNote = null;
+        if (habitat)
         {
-            existingProjects = Directory.EnumerateFiles(scan, "*.csproj", SearchOption.AllDirectories)
-                .Take(maxExisting)
-                .Select(p => (object)new { path = p, kind = "csproj" })
-                .Concat(Directory.EnumerateFiles(scan, "tsconfig.json", SearchOption.AllDirectories)
-                    .Take(Math.Max(0, maxExisting / 4))
-                    .Select(p => (object)new { path = p, kind = "tsconfig" }))
-                .Take(maxExisting)
-                .ToArray();
-            existingSolutions = Directory.EnumerateFiles(scan, "*.sln", SearchOption.TopDirectoryOnly)
-                .Concat(Directory.EnumerateFiles(scan, "*.slnx", SearchOption.TopDirectoryOnly))
-                .Take(20)
-                .Select(p => (object)new { path = p })
-                .ToArray();
+            scanNote = ProjectScene.HostHabitatScanNote;
+        }
+        else if (Directory.Exists(scan))
+        {
+            try
+            {
+                existingProjects = Directory.EnumerateFiles(scan, "*.csproj", SearchOption.AllDirectories)
+                    .Take(maxExisting)
+                    .Select(p => (object)new { path = p, kind = "csproj" })
+                    .Concat(Directory.EnumerateFiles(scan, "tsconfig.json", SearchOption.AllDirectories)
+                        .Take(Math.Max(0, maxExisting / 4))
+                        .Select(p => (object)new { path = p, kind = "tsconfig" }))
+                    .Take(maxExisting)
+                    .ToArray();
+                existingSolutions = Directory.EnumerateFiles(scan, "*.sln", SearchOption.TopDirectoryOnly)
+                    .Concat(Directory.EnumerateFiles(scan, "*.slnx", SearchOption.TopDirectoryOnly))
+                    .Take(20)
+                    .Select(p => (object)new { path = p })
+                    .ToArray();
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                scanNote = $"scan skipped (access denied): {Trunc(ex.Message, 200)}";
+            }
+            catch (IOException ex)
+            {
+                scanNote = $"scan skipped (io): {Trunc(ex.Message, 200)}";
+            }
         }
 
         var curated = ProjectScene.Curated.Select(c => new
@@ -142,6 +160,7 @@ public static class ProjectOps
                 solution_or_project = plan.SolutionOrProjectPath
             },
             scan_root = scan,
+            scan_note = scanNote,
             templates_curated = curated,
             templates_installed = installed,
             templates_installed_note = installedNote,
@@ -171,6 +190,18 @@ public static class ProjectOps
         var scan = string.IsNullOrWhiteSpace(root)
             ? plan.WorkRoot
             : Path.GetFullPath(Path.IsPathRooted(root) ? root! : Path.Combine(plan.WorkRoot, root!));
+        if (ProjectScene.IsHostHabitatRoot(scan))
+        {
+            var habitat = StepResponse.Success(kind, "habitat_skip", new
+            {
+                root = scan,
+                items = Array.Empty<object>(),
+                scan_note = ProjectScene.HostHabitatScanNote
+            });
+            bus.RecordLocal("projects", kind, ScriptArgs.From(new { root = scan }), habitat.ToJson());
+            return Task.FromResult(habitat);
+        }
+
         if (!Directory.Exists(scan))
         {
             var fail = StepResponse.Fail(kind, $"root not found: {scan}");
@@ -178,11 +209,22 @@ public static class ProjectOps
             return Task.FromResult(fail);
         }
 
-        var csprojs = Directory.EnumerateFiles(scan, "*.csproj", SearchOption.AllDirectories)
-            .Take(100).Select(p => new { path = p, kind = "csproj" });
-        var tsconfigs = Directory.EnumerateFiles(scan, "tsconfig.json", SearchOption.AllDirectories)
-            .Take(100).Select(p => new { path = p, kind = "tsconfig" });
-        var items = csprojs.Concat(tsconfigs).Take(120).ToArray();
+        object[] items;
+        try
+        {
+            var csprojs = Directory.EnumerateFiles(scan, "*.csproj", SearchOption.AllDirectories)
+                .Take(100).Select(p => new { path = p, kind = "csproj" });
+            var tsconfigs = Directory.EnumerateFiles(scan, "tsconfig.json", SearchOption.AllDirectories)
+                .Take(100).Select(p => new { path = p, kind = "tsconfig" });
+            items = csprojs.Concat(tsconfigs).Take(120).Cast<object>().ToArray();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            var denied = StepResponse.Fail(kind, $"access denied: {Trunc(ex.Message, 200)}");
+            bus.RecordLocal("projects", kind, ScriptArgs.From(new { root = scan }), denied.ToJson());
+            return Task.FromResult(denied);
+        }
+
         var result = StepResponse.Success(kind, $"found:{items.Length}", new { root = scan, items });
         bus.RecordLocal("projects", kind, ScriptArgs.From(new { root = scan }), result.ToJson());
         return Task.FromResult(result);

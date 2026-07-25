@@ -97,4 +97,90 @@ public static class ProjectScene
 
         return cols;
     }
+
+    /// <summary>
+    /// Host / protected roots are unsafe for AllDirectories project scans
+    /// (MCP cold cwd often lands under AppData → Access denied on Application Data).
+    /// </summary>
+    public static bool IsHostHabitatRoot(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return true;
+
+        string full;
+        try
+        {
+            full = Path.GetFullPath(path);
+        }
+        catch
+        {
+            return true;
+        }
+
+        full = TrimDir(full);
+        if (full.Length == 0)
+            return true;
+
+        // Classic junction that throws Access denied on AllDirectories walk.
+        if (full.Contains("Application Data", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        foreach (var special in new[]
+                 {
+                     Environment.SpecialFolder.Windows,
+                     Environment.SpecialFolder.ProgramFiles,
+                     Environment.SpecialFolder.ProgramFilesX86,
+                     Environment.SpecialFolder.System,
+                     Environment.SpecialFolder.SystemX86,
+                     Environment.SpecialFolder.CommonApplicationData
+                 })
+        {
+            if (Under(Environment.GetFolderPath(special), full))
+                return true;
+        }
+
+        // Exact AppData roots (not Temp / project folders nested under Local).
+        if (EqualsDir(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), full)
+            || EqualsDir(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), full))
+            return true;
+
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (EqualsDir(profile, full))
+            return true;
+
+        var driveRoot = Path.GetPathRoot(full);
+        if (EqualsDir(driveRoot, full))
+            return true;
+
+        return false;
+    }
+
+    public const string HostHabitatScanNote =
+        "host habitat cwd — pass root= or cdp_open (no deep existing scan)";
+
+    static bool Under(string? root, string candidate)
+    {
+        if (string.IsNullOrWhiteSpace(root))
+            return false;
+        string r;
+        try { r = TrimDir(Path.GetFullPath(root)); }
+        catch { return false; }
+        if (r.Length == 0) return false;
+        if (EqualsDir(r, candidate)) return true;
+        var sep = Path.DirectorySeparatorChar;
+        var alt = Path.AltDirectorySeparatorChar;
+        return candidate.StartsWith(r + sep, StringComparison.OrdinalIgnoreCase)
+               || candidate.StartsWith(r + alt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    static bool EqualsDir(string? a, string? b)
+    {
+        if (string.IsNullOrWhiteSpace(a) || string.IsNullOrWhiteSpace(b))
+            return false;
+        return string.Equals(TrimDir(a), TrimDir(b), StringComparison.OrdinalIgnoreCase);
+    }
+
+    static string TrimDir(string path)
+        => path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
 }
