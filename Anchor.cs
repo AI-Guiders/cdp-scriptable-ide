@@ -113,11 +113,17 @@ public sealed class Anchor
 
     public static Anchor LandOpen(string path, int? line = null)
     {
-        var inner = File(path);
+        var inner = File(path).CodeFamily();
         if (line is > 0)
             inner.Line(line.Value);
         return new Anchor().Navigation().Command("open").Nested(inner);
     }
+
+    public static Anchor LandGoto(Anchor codeLocus) =>
+        new Anchor().Navigation().Command("goto").Nested(
+            string.IsNullOrWhiteSpace(codeLocus.ToSpan().Family)
+                ? codeLocus.CodeFamily()
+                : codeLocus);
 
     public static Anchor LandGo(string organ, Anchor? locus = null)
     {

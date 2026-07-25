@@ -250,7 +250,7 @@ public static class BracketLocate
             if (!string.IsNullOrWhiteSpace(span.Go))
                 parts.Add(Key("Go", canon) + ":" + span.Go.Trim());
             if (span.NestedAnchor is { } nested)
-                parts.Add("Anchor:" + Format(nested, preferCanonical));
+                parts.Add("Anchor:" + Format(nested, preferCanonical: true));
             return "[" + string.Join(';', parts) + "]";
         }
 
