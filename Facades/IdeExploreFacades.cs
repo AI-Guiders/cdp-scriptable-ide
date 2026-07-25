@@ -290,10 +290,10 @@ public sealed class SemanticMapExplore(IScriptToolBus bus, PlanContext plan, Cod
 
 public sealed class CorrespondenceFacade
 {
-    public Task<string> FindAsync(CodeAnchor anchor, CancellationToken ct = default)
+    public Task<string> FindAsync(CodeAnchor anchor, string? workspaceRootHint = null, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        return Task.FromResult(IdeReport.CorrespondenceStub(anchor).ToJson());
+        return Task.FromResult(IdeReport.Correspondence(anchor, workspaceRootHint).ToJson());
     }
 }
 

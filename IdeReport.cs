@@ -31,16 +31,12 @@ public sealed class IdeReport
 
     public string ToJson() => JsonSerializer.Serialize(this, IdeReportJson.Options);
 
-    public static IdeReport CorrespondenceStub(CodeAnchor anchor) => new()
-    {
-        Kind = "correspondence",
-        Available = false,
-        Reason = "needs_cide_host",
-        Anchor = IdeReportAnchor.From(anchor),
-        Summary = "Correspondence (doc↔code) is not available in standalone CDP; needs CDP-in-CIDE.",
-        Highlights = [],
-        Next = ["Open CIDE host when Correspondence MCP is wired.", "Meanwhile use SemanticMap.Explore(...).WithUsages().GetSceneAsync()."]
-    };
+    /// <summary>Resolve L1 correspondence from <c>.cascade/workspace.toml</c> (standalone).</summary>
+    public static IdeReport Correspondence(CodeAnchor anchor, string? workspaceRootHint = null) =>
+        WorkspaceCorrespondence.ResolveReport(anchor, workspaceRootHint);
+
+    /// <summary>Obsolete name — use <see cref="Correspondence"/>.</summary>
+    public static IdeReport CorrespondenceStub(CodeAnchor anchor) => Correspondence(anchor);
 }
 
 public sealed class IdeReportAnchor
