@@ -15,6 +15,10 @@ public sealed class Anchor
     private string? _role;
     private string? _xmlPath;
     private string? _attr;
+    private string? _family;
+    private string? _command;
+    private string? _go;
+    private Anchor? _nested;
 
     public static Anchor File(string path)
     {
@@ -39,7 +43,11 @@ public sealed class Anchor
         _scopeIndex = span.ScopeIndex,
         _role = span.Role,
         _xmlPath = span.XmlPath,
-        _attr = span.Attr
+        _attr = span.Attr,
+        _family = span.Family,
+        _command = span.Command,
+        _go = span.Go,
+        _nested = span.NestedAnchor is { } n ? FromSpan(n) : null
     };
 
     /// <summary>XML element path — <c>X:Project/PropertyGroup/OutputType</c>.</summary>
@@ -50,12 +58,73 @@ public sealed class Anchor
         return this;
     }
 
-    /// <summary>XML attribute on the X: element — <c>A:Version</c>.</summary>
+    /// <summary>XML attribute — <c>Attribute:Version</c> (alias <c>A:</c>).</summary>
     public Anchor Attr(string attributeName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(attributeName);
         _attr = attributeName.Trim();
         return this;
+    }
+
+    /// <summary><c>Family:code|xml|navigation</c>.</summary>
+    public Anchor Family(string family)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(family);
+        _family = family.Trim();
+        return this;
+    }
+
+    public Anchor Navigation() => Family("navigation");
+    public Anchor CodeFamily() => Family("code");
+    public Anchor XmlFamily() => Family("xml");
+
+    /// <summary>Navigation <c>Command:open|goto|restore|show|go</c>.</summary>
+    public Anchor Command(string command)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(command);
+        _command = command.Trim().ToLowerInvariant();
+        _family ??= "navigation";
+        return this;
+    }
+
+    /// <summary>Navigation organ — <c>Go:editor_scene</c> with <c>Command:go</c>.</summary>
+    public Anchor Go(string organOrScene)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(organOrScene);
+        _go = organOrScene.Trim();
+        _family ??= "navigation";
+        _command ??= "go";
+        return this;
+    }
+
+    /// <summary>Nested locus Anchor — <c>Anchor:[…]</c>.</summary>
+    public Anchor Nested(Anchor locus)
+    {
+        ArgumentNullException.ThrowIfNull(locus);
+        _nested = locus;
+        _family ??= "navigation";
+        return this;
+    }
+
+    public static Anchor LandRestore() => new Anchor().Navigation().Command("restore");
+
+    public static Anchor LandShow(string path) =>
+        new Anchor().Navigation().Command("show").Nested(File(path));
+
+    public static Anchor LandOpen(string path, int? line = null)
+    {
+        var inner = File(path);
+        if (line is > 0)
+            inner.Line(line.Value);
+        return new Anchor().Navigation().Command("open").Nested(inner);
+    }
+
+    public static Anchor LandGo(string organ, Anchor? locus = null)
+    {
+        var a = new Anchor().Navigation().Command("go").Go(organ);
+        if (locus is not null)
+            a.Nested(locus);
+        return a;
     }
 
     /// <summary>Upsert missing XML element under parent — <c>K:Element</c>.</summary>
@@ -139,7 +208,8 @@ public sealed class Anchor
     public Anchor Type() => Role("Type");
 
     public BracketLocate.Span ToSpan() =>
-        new(_file, _member, _lineStart, _lineEnd, _scopeKind, _scopeIndex, _role, _xmlPath, _attr);
+        new(_file, _member, _lineStart, _lineEnd, _scopeKind, _scopeIndex, _role, _xmlPath, _attr,
+            _family, _command, _go, _nested?.ToSpan());
 
     /// <summary>Bracket-notation wire for harness parse.</summary>
     public string ToWire() => BracketLocate.Format(ToSpan());
