@@ -68,7 +68,7 @@ public static class IdeReportBuilder
                 :
                 [
                     "Open the top highlight and go_to_definition / find_usages.",
-                    "Enqueue Correspondence when CIDE host is available for ADR↔code."
+                    "analysis_scene feature=correspondence for ADR↔code when workspace.toml present."
                 ]
         };
     }

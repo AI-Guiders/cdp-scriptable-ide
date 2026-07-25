@@ -24,7 +24,9 @@ public static partial class WorkspaceCorrespondence
         int? LineStart,
         int? LineEnd,
         string? MemberKey,
-        string Wire);
+        string Wire,
+        int? DocLineHint = null,
+        string? Excerpt = null);
 
     public sealed record Result(
         string WorkspaceRoot,
@@ -175,11 +177,44 @@ public static partial class WorkspaceCorrespondence
             Next =
             [
                 "analysis_scene feature=correspondence path=",
-                "Open forward doc anchor [F:docs/adr/…]",
-                "Reverse wire → sniper/edit"
+                "Open forward doc anchor [F:docs/…]",
+                "Reverse wire (workspace_toml|bracket|doc_body) → sniper/edit"
             ]
         };
     }
+
+    /// <summary>Unified correspondence context (ADR 0156 get_correspondence_context shape).</summary>
+    public static object BuildContext(Result result) => new
+    {
+        file = result.FileRel,
+        activeLayers = result.ActiveLayers,
+        layersBadge = string.Join(" · ", result.ActiveLayers),
+        feature = result.FeatureLine is null
+            ? null
+            : new { line = result.FeatureLine, docs = result.FeatureDocs },
+        forwardDocs = result.ForwardDocs
+            .Select(d => new { path = d.Path, title = d.Title })
+            .ToArray(),
+        reverseAnchors = result.ReverseAnchors
+            .Select(r => new
+            {
+                docPath = r.DocPath,
+                docTitle = r.DocTitle,
+                provenance = r.Provenance,
+                kind = r.Kind,
+                codeAnchor = new
+                {
+                    file = r.File,
+                    lineStart = r.LineStart,
+                    lineEnd = r.LineEnd,
+                    memberKey = r.MemberKey,
+                    wire = r.Wire
+                },
+                excerpt = r.Excerpt,
+                docLineHint = r.DocLineHint
+            })
+            .ToArray()
+    };
 
     /// <summary>Replace stub: resolve from file path (walk-up) or optional root hint.</summary>
     public static IdeReport ResolveReport(CodeAnchor anchor, string? workspaceRootHint = null)
@@ -340,48 +375,254 @@ public static partial class WorkspaceCorrespondence
         IReadOnlyList<string> forwardDocs,
         string fileRel)
     {
-        var rows = doc?.Workspace?.Correspondence?.CodeAnchors;
-        if (rows is not { Count: > 0 })
-            return [];
-
         var fileNorm = NormalizePath(fileRel);
-        var forwardSet = new HashSet<string>(forwardDocs.Select(NormalizeDoc), StringComparer.OrdinalIgnoreCase);
+        var fileName = Path.GetFileName(fileNorm);
         var list = new List<ReverseAnchor>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var overrides = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var row in rows)
+        var rows = doc?.Workspace?.Correspondence?.CodeAnchors;
+        if (rows is { Count: > 0 })
         {
-            var docPath = NormalizeDoc(row.Doc ?? "");
-            if (docPath.Length == 0)
-                continue;
-
-            if (!TryParseAnchor(row, out var file, out var lineStart, out var lineEnd, out var member, out var wire))
-                continue;
-
-            var fileMatch = string.Equals(NormalizePath(file), fileNorm, StringComparison.OrdinalIgnoreCase);
-            var docMatch = forwardSet.Contains(docPath);
-            // Include if reverse points at this file, or doc is in forward set (doc→code for current zone).
-            if (!fileMatch && !docMatch)
-                continue;
-            // Prefer rows tied to this file when both present; still show doc-scoped for zone.
-            if (!fileMatch && docMatch)
+            foreach (var row in rows)
             {
-                // keep — reverse anchors for docs of this zone
-            }
+                var docPath = NormalizeDoc(row.Doc ?? "");
+                if (docPath.Length == 0)
+                    continue;
 
-            var kind = string.IsNullOrWhiteSpace(row.Kind) ? "documents" : row.Kind.Trim();
-            list.Add(new ReverseAnchor(
-                docPath,
-                GuessTitle(docPath),
-                "workspace_toml",
-                kind,
-                file,
-                lineStart,
-                lineEnd,
-                member,
-                wire));
+                if (!TryParseAnchor(row, out var file, out var lineStart, out var lineEnd, out var member, out var wire))
+                    continue;
+
+                if (!PathsMatch(file, fileNorm, fileName))
+                    continue;
+
+                var kind = string.IsNullOrWhiteSpace(row.Kind) ? "documents" : row.Kind.Trim();
+                overrides.Add($"{docPath}|{NormalizePath(file)}");
+                AddReverse(
+                    list,
+                    seen,
+                    docPath,
+                    GuessTitle(docPath),
+                    "workspace_toml",
+                    kind,
+                    file,
+                    lineStart,
+                    lineEnd,
+                    member,
+                    wire,
+                    lineStart,
+                    null);
+            }
         }
 
-        return list.ToArray();
+        foreach (var docRel in forwardDocs.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var absDoc = Path.Combine(root, docRel.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(absDoc))
+                continue;
+
+            string md;
+            try { md = File.ReadAllText(absDoc); }
+            catch { continue; }
+
+            ScanDocBody(docRel, md, fileNorm, fileName, overrides, list, seen);
+        }
+
+        return list
+            .OrderBy(x => x.DocPath, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.DocLineHint ?? int.MaxValue)
+            .ToArray();
+    }
+
+    static void ScanDocBody(
+        string docRel,
+        string markdown,
+        string fileNorm,
+        string fileName,
+        HashSet<string> overrides,
+        List<ReverseAnchor> list,
+        HashSet<string> seen)
+    {
+        var title = GuessTitle(docRel);
+
+        foreach (Match m in BracketInProseRegex().Matches(markdown))
+        {
+            var bracket = m.Value;
+            if (!TryParseBracket(bracket, out var file, out var ls, out var le, out var member))
+                continue;
+            if (!PathsMatch(file, fileNorm, fileName))
+                continue;
+            if (overrides.Contains($"{NormalizeDoc(docRel)}|{NormalizePath(file)}"))
+                continue;
+
+            var lineHint = LineNumberAt(markdown, m.Index);
+            AddReverse(
+                list,
+                seen,
+                NormalizeDoc(docRel),
+                title,
+                "bracket",
+                "documents",
+                file,
+                ls,
+                le,
+                member,
+                BuildWire(file, ls, le, member),
+                lineHint,
+                ExcerptAt(markdown, lineHint));
+        }
+
+        foreach (Match m in BacktickPathRegex().Matches(markdown))
+        {
+            var path = NormalizePath(m.Groups["path"].Value);
+            if (!LooksLikeCodePath(path) || !PathsMatch(path, fileNorm, fileName))
+                continue;
+            if (overrides.Contains($"{NormalizeDoc(docRel)}|{path}"))
+                continue;
+
+            var lineHint = LineNumberAt(markdown, m.Index);
+            AddReverse(
+                list,
+                seen,
+                NormalizeDoc(docRel),
+                title,
+                "doc_body",
+                "documents",
+                path,
+                null,
+                null,
+                null,
+                BuildWire(path, null, null, null),
+                lineHint,
+                ExcerptAt(markdown, lineHint));
+        }
+
+        foreach (Match m in MarkdownCodeLinkRegex().Matches(markdown))
+        {
+            var path = NormalizePath(m.Groups["path"].Value.Split('#', 2)[0]);
+            if (!PathsMatch(path, fileNorm, fileName))
+                continue;
+            if (overrides.Contains($"{NormalizeDoc(docRel)}|{path}"))
+                continue;
+
+            var lineHint = LineNumberAt(markdown, m.Index);
+            AddReverse(
+                list,
+                seen,
+                NormalizeDoc(docRel),
+                title,
+                "doc_body",
+                "documents",
+                path,
+                null,
+                null,
+                null,
+                BuildWire(path, null, null, null),
+                lineHint,
+                ExcerptAt(markdown, lineHint));
+        }
+
+        foreach (Match m in FileLineRangeRegex().Matches(markdown))
+        {
+            var path = NormalizePath(m.Groups["path"].Value);
+            if (!PathsMatch(path, fileNorm, fileName))
+                continue;
+            if (overrides.Contains($"{NormalizeDoc(docRel)}|{path}"))
+                continue;
+
+            int? ls = int.TryParse(m.Groups["start"].Value, out var s) ? s : null;
+            int? le = m.Groups["end"].Success && int.TryParse(m.Groups["end"].Value, out var e) ? e : null;
+            var lineHint = LineNumberAt(markdown, m.Index);
+            AddReverse(
+                list,
+                seen,
+                NormalizeDoc(docRel),
+                title,
+                "doc_body",
+                "documents",
+                path,
+                ls,
+                le,
+                null,
+                BuildWire(path, ls, le, null),
+                lineHint,
+                ExcerptAt(markdown, lineHint));
+        }
+    }
+
+    static void AddReverse(
+        List<ReverseAnchor> list,
+        HashSet<string> seen,
+        string docPath,
+        string title,
+        string provenance,
+        string kind,
+        string file,
+        int? lineStart,
+        int? lineEnd,
+        string? member,
+        string wire,
+        int? docLineHint,
+        string? excerpt)
+    {
+        var key = $"{docPath}|{file}|{lineStart}|{member}|{provenance}";
+        if (!seen.Add(key))
+            return;
+
+        list.Add(new ReverseAnchor(
+            docPath,
+            title,
+            provenance,
+            kind,
+            file,
+            lineStart,
+            lineEnd,
+            member,
+            wire,
+            docLineHint,
+            excerpt));
+    }
+
+    static bool PathsMatch(string candidatePath, string anchorRel, string anchorFileName)
+    {
+        var c = NormalizePath(candidatePath);
+        if (c.Equals(anchorRel, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (c.EndsWith('/' + anchorRel, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return string.Equals(Path.GetFileName(c), anchorFileName, StringComparison.OrdinalIgnoreCase)
+            && (anchorRel.EndsWith('/' + anchorFileName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(anchorRel, anchorFileName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    static bool LooksLikeCodePath(string path) =>
+        path.Contains('.', StringComparison.Ordinal)
+        && (path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".fs", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".vb", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".csx", StringComparison.OrdinalIgnoreCase)
+            || path.Contains('/', StringComparison.Ordinal));
+
+    static int LineNumberAt(string markdown, int index)
+    {
+        var limit = Math.Min(Math.Max(index, 0), markdown.Length);
+        var line = 1;
+        for (var i = 0; i < limit; i++)
+        {
+            if (markdown[i] == '\n')
+                line++;
+        }
+
+        return line;
+    }
+
+    static string? ExcerptAt(string markdown, int lineOneBased)
+    {
+        var lines = markdown.Replace("\r\n", "\n").Split('\n');
+        if (lineOneBased < 1 || lineOneBased > lines.Length)
+            return null;
+        var raw = lines[lineOneBased - 1].Trim();
+        return raw.Length <= 96 ? raw : raw[..93] + "…";
     }
 
     static bool TryParseAnchor(
@@ -429,6 +670,8 @@ public static partial class WorkspaceCorrespondence
         lineEnd = null;
         member = null;
         var raw = bracket.Trim().Trim('[', ']');
+        // Prose often uses "[F:a.cs M:Foo]" — normalize space before Key: into ';'
+        raw = BracketKeySepRegex().Replace(raw, "; $1");
         foreach (var part in raw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             if (part.StartsWith("F:", StringComparison.OrdinalIgnoreCase))
@@ -565,6 +808,21 @@ public static partial class WorkspaceCorrespondence
 
     static string NormalizePath(string raw) => (raw ?? "").Trim().Replace('\\', '/');
     static string NormalizeDoc(string raw) => NormalizePath(raw).TrimStart('/');
+
+    [GeneratedRegex(@"`(?<path>[\w./\\-]+\.(?:cs|fs|vb|csx))`", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex BacktickPathRegex();
+
+    [GeneratedRegex(@"\[(?<label>[^\]]+)\]\((?<path>[^)\s#]+\.(?:cs|fs|vb|csx)[^)]*)\)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex MarkdownCodeLinkRegex();
+
+    [GeneratedRegex(@"(?<path>[\w./\\-]+\.(?:cs|fs|vb|csx)):(?<start>\d+)(?:\s*[-–]\s*(?<end>\d+))?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex FileLineRangeRegex();
+
+    [GeneratedRegex(@"\[F:[^\]]+\]", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex BracketInProseRegex();
+
+    [GeneratedRegex(@"(?<=\S)\s+(?=[FMLSK]:)", RegexOptions.CultureInvariant)]
+    private static partial Regex BracketKeySepRegex();
 
     [GeneratedRegex(@"\[[^\]]*\]\((?<target>[^)]+)\)", RegexOptions.CultureInvariant)]
     private static partial Regex MdLinkRegex();
