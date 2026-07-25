@@ -245,6 +245,7 @@ public static class ProjectOps
             stdout = Trunc(stdout, 4000),
             stderr = Trunc(stderr, 2000)
         };
+        string? promotedEntry = null;
         if (code == 0 && File.Exists(csproj))
         {
             TestPackageBundle.TryExcludeUnderscoreScratchDirs(new PlanContext
@@ -254,10 +255,27 @@ public static class ProjectOps
                 SolutionOrProjectPath = csproj,
                 Language = "csharp"
             });
+            promotedEntry = ProjectScaffoldHygiene.TryPromoteClass1(outputDir, name);
         }
 
+        var successPayload = new
+        {
+            projection = "dotnet_new",
+            template,
+            name,
+            outputDir,
+            tfm,
+            tfm_policy = policy.ToString(),
+            tfm_detail = tfmDetail,
+            project = File.Exists(csproj) ? csproj : null,
+            entry = promotedEntry,
+            exit_code = code,
+            stdout = Trunc(stdout, 4000),
+            stderr = Trunc(stderr, 2000)
+        };
+
         return code == 0
-            ? StepResponse.Success(kind, $"created:{tfm}", payload)
+            ? StepResponse.Success(kind, $"created:{tfm}", successPayload)
             : StepResponse.Fail(kind, $"dotnet new exit {code}", payload);
     }
 
