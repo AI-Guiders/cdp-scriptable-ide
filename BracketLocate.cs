@@ -28,6 +28,9 @@ public static class BracketLocate
         ["Line"] = "Line",
         ["S"] = "Scope",
         ["Scope"] = "Scope",
+        ["T"] = "Text",
+        ["Text"] = "Text",
+        ["Content"] = "Text",
         ["K"] = "Kind",
         ["Kind"] = "Kind",
         ["Role"] = "Kind",
@@ -61,7 +64,8 @@ public static class BracketLocate
         string? Family = null,
         string? Command = null,
         string? Go = null,
-        Span? NestedAnchor = null);
+        Span? NestedAnchor = null,
+        string? TextNeedle = null);
 
     public static Span Parse(string bracketOrInner)
     {
@@ -78,6 +82,7 @@ public static class BracketLocate
         string? family = null;
         string? command = null;
         string? go = null;
+        string? textNeedle = null;
         Span? nested = null;
         var legacyNavigate = false;
 
@@ -104,6 +109,9 @@ public static class BracketLocate
                     break;
                 case "Line":
                     ParseLine(val, out lineStart, out lineEnd);
+                    break;
+                case "Text":
+                    textNeedle = SanitizeTextNeedle(val);
                     break;
                 case "Scope":
                     ParseScope(val, out scopeKind, out scopeIndex);
@@ -134,7 +142,7 @@ public static class BracketLocate
 
         var span = new Span(
             file, member, lineStart, lineEnd, scopeKind, scopeIndex, role, xmlPath, attr,
-            family, command, go, nested);
+            family, command, go, nested, textNeedle);
         _ = ClassifyFamily(span, out var familyError);
         if (familyError is not null)
             throw new ArgumentException(familyError);
@@ -161,7 +169,8 @@ public static class BracketLocate
                      || span.NestedAnchor is not null;
         var hasCsharpStructural = !string.IsNullOrWhiteSpace(span.MemberKey)
             || !string.IsNullOrWhiteSpace(span.ScopeKind)
-            || span.LineStart is not null;
+            || span.LineStart is not null
+            || !string.IsNullOrWhiteSpace(span.TextNeedle);
         var hasXml = !string.IsNullOrWhiteSpace(span.XmlPath)
             || !string.IsNullOrWhiteSpace(span.Attr);
 
@@ -171,6 +180,7 @@ public static class BracketLocate
             if (!string.IsNullOrWhiteSpace(span.MemberKey)
                 || !string.IsNullOrWhiteSpace(span.ScopeKind)
                 || span.LineStart is not null
+                || !string.IsNullOrWhiteSpace(span.TextNeedle)
                 || !string.IsNullOrWhiteSpace(span.XmlPath)
                 || !string.IsNullOrWhiteSpace(span.Attr))
             {
@@ -266,6 +276,9 @@ public static class BracketLocate
                 : $"{lineKey}:{ls}");
         }
 
+        if (!string.IsNullOrWhiteSpace(span.TextNeedle))
+            parts.Add(Key("Text", canon) + ":" + SanitizeTextNeedle(span.TextNeedle));
+
         if (!string.IsNullOrWhiteSpace(span.ScopeKind))
         {
             var kind = span.ScopeKind.Trim().ToLowerInvariant();
@@ -293,6 +306,7 @@ public static class BracketLocate
             "Member" => "M",
             "Line" => "L",
             "Scope" => "S",
+            "Text" => "T",
             "Kind" => "K",
             "Element" => "X",
             "Attribute" => "A",
@@ -307,6 +321,19 @@ public static class BracketLocate
         if (text.StartsWith('[') && text.EndsWith(']'))
             text = text[1..^1].Trim();
         return text;
+    }
+
+    /// <summary>Strip axis separators from content needle so wire stays parseable.</summary>
+    public static string SanitizeTextNeedle(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return "";
+        var s = raw.Trim().Replace("\r", "").Replace("\n", " ").Replace(";", " ");
+        while (s.Contains("  ", StringComparison.Ordinal))
+            s = s.Replace("  ", " ", StringComparison.Ordinal);
+        if (s.Length > 96)
+            s = s[..96];
+        return s.Trim();
     }
 
     static List<(string Key, string Value)> SplitAxes(string text)
