@@ -476,6 +476,20 @@ public static class BracketSyntaxResolve
             lineSpan.EndLinePosition.Line + 1,
             Math.Max(1, lineSpan.EndLinePosition.Character + 1));
         detail = target.Detail;
+
+        // T: is parse-only unless we narrow here — silent ignore made place=after
+        // insert at end of whole M: member (dogfood: IntentRouter RouteOne wiring).
+        if (!string.IsNullOrWhiteSpace(span.TextNeedle))
+        {
+            if (!TryNarrowRangeToTextNeedle(target.Tree, target.Node, span.TextNeedle, out range, out var narrowDetail))
+            {
+                detail = narrowDetail;
+                return false;
+            }
+
+            detail = $"{target.Detail}+T";
+        }
+
         return true;
     }
 
@@ -562,6 +576,12 @@ public static class BracketSyntaxResolve
                 if (!TryApplyMemberRole(member, span.Role.Trim(), out focus, out resolveDetail))
                     return Fail(resolveDetail, out detail);
             }
+        }
+        else if (!string.IsNullOrWhiteSpace(span.TextNeedle))
+        {
+            // T: alone: search whole compilation unit (M already narrowed searchRoot above).
+            focus = searchRoot;
+            resolveDetail = "file";
         }
         else
         {
@@ -671,6 +691,99 @@ public static class BracketSyntaxResolve
     {
         detail = why;
         return false;
+    }
+
+    /// <summary>
+    /// Narrow a resolved syntax node range to the first <c>T:</c> needle match inside it.
+    /// Needle is <see cref="BracketLocate.SanitizeTextNeedle"/> (same as wire parse).
+    /// </summary>
+    static bool TryNarrowRangeToTextNeedle(
+        SyntaxTree tree,
+        SyntaxNode scope,
+        string needleRaw,
+        out TextRange range,
+        out string detail)
+    {
+        range = default!;
+        var needle = BracketLocate.SanitizeTextNeedle(needleRaw);
+        if (needle.Length == 0)
+        {
+            detail = "text_needle_empty";
+            return false;
+        }
+
+        var source = tree.GetText();
+        var nodeSpan = scope.Span;
+        var haystack = source.ToString(nodeSpan);
+        if (!TryFindNeedleOffset(haystack, needle, out var relStart, out var matchLen))
+        {
+            detail = "text_needle_not_found";
+            return false;
+        }
+
+        var absStart = nodeSpan.Start + relStart;
+        var absEnd = absStart + matchLen;
+        // SanitizeTextNeedle strips ';' from the wire value, but source still has
+        // statement terminators — extend so place=after does not land between
+        // `return "x"` and `;` (would split the statement).
+        var fullText = source.ToString();
+        if (absEnd < fullText.Length && fullText[absEnd] == ';')
+            absEnd++;
+        var startPos = source.Lines.GetLinePosition(absStart);
+        var endPos = source.Lines.GetLinePosition(absEnd);
+        range = new TextRange(
+            startPos.Line + 1,
+            startPos.Character + 1,
+            endPos.Line + 1,
+            Math.Max(1, endPos.Character + 1));
+        detail = "T";
+        return true;
+    }
+
+    /// <summary>
+    /// Ordinal match first; if sanitize collapsed whitespace, match collapsed haystack and map back.
+    /// </summary>
+    static bool TryFindNeedleOffset(string haystack, string needle, out int start, out int length)
+    {
+        start = haystack.IndexOf(needle, StringComparison.Ordinal);
+        if (start >= 0)
+        {
+            length = needle.Length;
+            return true;
+        }
+
+        var map = new List<int>(haystack.Length);
+        var collapsed = new System.Text.StringBuilder(haystack.Length);
+        for (var i = 0; i < haystack.Length; i++)
+        {
+            var c = haystack[i];
+            if (char.IsWhiteSpace(c))
+            {
+                if (collapsed.Length > 0 && collapsed[^1] != ' ')
+                {
+                    collapsed.Append(' ');
+                    map.Add(i);
+                }
+
+                continue;
+            }
+
+            collapsed.Append(c);
+            map.Add(i);
+        }
+
+        var cHay = collapsed.ToString();
+        var cIdx = cHay.IndexOf(needle, StringComparison.Ordinal);
+        if (cIdx < 0 || cIdx + needle.Length > map.Count)
+        {
+            length = 0;
+            return false;
+        }
+
+        start = map[cIdx];
+        var endInclusive = map[cIdx + needle.Length - 1];
+        length = endInclusive - start + 1;
+        return true;
     }
 
     private static bool TryResolveScope(
