@@ -697,7 +697,7 @@ public static class BracketSyntaxResolve
     /// Narrow a resolved syntax node range to the first <c>T:</c> needle match inside it.
     /// Needle is <see cref="BracketLocate.SanitizeTextNeedle"/> (same as wire parse).
     /// </summary>
-    static bool TryNarrowRangeToTextNeedle(
+    public static bool TryNarrowRangeToTextNeedle(
         SyntaxTree tree,
         SyntaxNode scope,
         string needleRaw,
@@ -737,6 +737,137 @@ public static class BracketSyntaxResolve
             endPos.Line + 1,
             Math.Max(1, endPos.Character + 1));
         detail = "T";
+        return true;
+    }
+
+    /// <summary>
+    /// Insert edges for place=before|after on a member/type with braces: inside the block,
+    /// not outside the declaration (same footgun class as ignored T: → place landed on wrong edge).
+    /// Returns a zero-width <see cref="TextRange"/> at the insert point.
+    /// </summary>
+    public static bool TryGetBlockInteriorInsertPoint(
+        SyntaxNode node,
+        bool before,
+        out TextRange point,
+        out string detail)
+    {
+        point = default!;
+        detail = "";
+
+        SyntaxToken open;
+        SyntaxToken close;
+        switch (node)
+        {
+            case BlockSyntax block:
+                open = block.OpenBraceToken;
+                close = block.CloseBraceToken;
+                break;
+            case MethodDeclarationSyntax { Body: { } methodBody }:
+                open = methodBody.OpenBraceToken;
+                close = methodBody.CloseBraceToken;
+                break;
+            case ConstructorDeclarationSyntax { Body: { } ctorBody }:
+                open = ctorBody.OpenBraceToken;
+                close = ctorBody.CloseBraceToken;
+                break;
+            case DestructorDeclarationSyntax { Body: { } dtorBody }:
+                open = dtorBody.OpenBraceToken;
+                close = dtorBody.CloseBraceToken;
+                break;
+            case OperatorDeclarationSyntax { Body: { } opBody }:
+                open = opBody.OpenBraceToken;
+                close = opBody.CloseBraceToken;
+                break;
+            case LocalFunctionStatementSyntax { Body: { } localBody }:
+                open = localBody.OpenBraceToken;
+                close = localBody.CloseBraceToken;
+                break;
+            case AccessorDeclarationSyntax { Body: { } accBody }:
+                open = accBody.OpenBraceToken;
+                close = accBody.CloseBraceToken;
+                break;
+            case TypeDeclarationSyntax type
+                when !type.OpenBraceToken.IsKind(SyntaxKind.None)
+                     && !type.CloseBraceToken.IsKind(SyntaxKind.None):
+                open = type.OpenBraceToken;
+                close = type.CloseBraceToken;
+                break;
+            case NamespaceDeclarationSyntax ns:
+                open = ns.OpenBraceToken;
+                close = ns.CloseBraceToken;
+                break;
+            default:
+                if (TryGetExpressionBodyExpression(node, out var expr))
+                    return PointAtNodeEdge(expr, before, "expression_body_edge", out point, out detail);
+                detail = "no_block_body";
+                return false;
+        }
+
+        if (open.IsKind(SyntaxKind.None) || close.IsKind(SyntaxKind.None))
+        {
+            detail = "no_block_body";
+            return false;
+        }
+
+        var tree = node.SyntaxTree;
+        if (tree is null)
+        {
+            detail = "no_syntax_tree";
+            return false;
+        }
+
+        var source = tree.GetText();
+        var abs = before ? open.Span.End : close.Span.Start;
+        var pos = source.Lines.GetLinePosition(abs);
+        point = new TextRange(
+            pos.Line + 1,
+            pos.Character + 1,
+            pos.Line + 1,
+            pos.Character + 1);
+        detail = before ? "block_body_start" : "block_body_end";
+        return true;
+    }
+
+    static bool TryGetExpressionBodyExpression(SyntaxNode node, out ExpressionSyntax expr)
+    {
+        expr = node switch
+        {
+            MethodDeclarationSyntax { ExpressionBody.Expression: { } e } => e,
+            LocalFunctionStatementSyntax { ExpressionBody.Expression: { } e } => e,
+            OperatorDeclarationSyntax { ExpressionBody.Expression: { } e } => e,
+            AccessorDeclarationSyntax { ExpressionBody.Expression: { } e } => e,
+            PropertyDeclarationSyntax { ExpressionBody.Expression: { } e } => e,
+            _ => null!
+        };
+        return expr is not null;
+    }
+
+    static bool PointAtNodeEdge(
+        SyntaxNode node,
+        bool before,
+        string detailName,
+        out TextRange point,
+        out string detail)
+    {
+        var lineSpan = node.GetLocation().GetLineSpan();
+        if (before)
+        {
+            point = new TextRange(
+                lineSpan.StartLinePosition.Line + 1,
+                lineSpan.StartLinePosition.Character + 1,
+                lineSpan.StartLinePosition.Line + 1,
+                lineSpan.StartLinePosition.Character + 1);
+        }
+        else
+        {
+            point = new TextRange(
+                lineSpan.EndLinePosition.Line + 1,
+                Math.Max(1, lineSpan.EndLinePosition.Character + 1),
+                lineSpan.EndLinePosition.Line + 1,
+                Math.Max(1, lineSpan.EndLinePosition.Character + 1));
+        }
+
+        detail = detailName;
         return true;
     }
 
