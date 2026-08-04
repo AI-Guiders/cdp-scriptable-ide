@@ -741,8 +741,9 @@ public static class BracketSyntaxResolve
     }
 
     /// <summary>
-    /// Insert edges for place=before|after on a member/type with braces: inside the block,
-    /// not outside the declaration (same footgun class as ignored T: → place landed on wrong edge).
+    /// Insert edges for block-interior places (type/ns before|after, or method into|end):
+    /// inside the braces, not outside the declaration.
+    /// Method <c>M:</c>+before|after stays sibling-outside at the DocumentEditPlane layer.
     /// Returns a zero-width <see cref="TextRange"/> at the insert point.
     /// </summary>
     public static bool TryGetBlockInteriorInsertPoint(
