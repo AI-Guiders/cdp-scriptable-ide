@@ -1,0 +1,10 @@
+[workspace.adr]
+auto_include = "linked"
+max_related = 8
+root_dir = "docs"
+id_regex = '(?:^|/)docs/(?<id>[A-Za-z0-9][^/]*?)(?:\.md)?'
+
+[workspace.adr.map]
+"WorkspaceCorrespondence.cs" = ["README.md", "docs/nuget-publishing.md"]
+"*" = ["README.md", "docs/nuget-publishing.md"]
+
